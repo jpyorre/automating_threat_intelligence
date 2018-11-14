@@ -1,5 +1,7 @@
 # automating threat intelligence scripts and documentation
 
+## Slides:
+https://pyosec.com/presentations/qubitsofia2018/
 
 # Installation Guides:
 
