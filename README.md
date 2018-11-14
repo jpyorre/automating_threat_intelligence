@@ -14,11 +14,11 @@ If you want to install MISP, this will get it done. It requires some interactivi
 
 # Scripts:
 
-# MTAScraper:
+##  MTAScraper:
 Scrapes http://malware-traffic-analysis.net/ blog entries and downloads the malware for personal analysis. Warning, it will unzip live malware (if you enable that function)
 
 -----------------
-# vt_hunter_downloader
+## vt_hunter_downloader
 
 Download all samples that you're hunting for in Virustotal Intelligence
 Make these changes in vt_hunter_downloader.py:
