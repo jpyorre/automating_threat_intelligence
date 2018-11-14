@@ -15,13 +15,13 @@ If you want to install MISP, this will get it done. It requires some interactivi
 # Scripts:
 
 # MTAScraper:
-## Scrapes http://malware-traffic-analysis.net/ blog entries and downloads the malware for personal analysis. Warning, it will unzip live malware (if you enable that function)
+Scrapes http://malware-traffic-analysis.net/ blog entries and downloads the malware for personal analysis. Warning, it will unzip live malware (if you enable that function)
 
 -----------------
 # vt_hunter_downloader
 
-## Download all samples that you're hunting for in Virustotal Intelligence
-## Make these changes in vt_hunter_downloader.py:
+Download all samples that you're hunting for in Virustotal Intelligence
+Make these changes in vt_hunter_downloader.py:
 
 virustotal_key = "putvirustotalkeyhere"
 
@@ -43,5 +43,5 @@ Right now, it's still 'in progress' as I map all the fields created by a cuckoo 
 
 # Tools/Utilities:
 
-## YARA Rules:
+YARA Rules:
 https://github.com/Yara-Rules/rules
