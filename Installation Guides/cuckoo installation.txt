@@ -1,0 +1,265 @@
+# Some sources that helped me get this going:
+# https://medium.com/@warunikaamali/cuckoo-sandbox-installation-guide-d7a09bd4ee1f
+# https://cuckoo.sh/docs/installation/host/index.html
+# Most useful: https://tom-churchill.blogspot.com/2017/08/setting-up-cuckoo-sandbox-step-by-step.html
+
+# I installed Cuckoo on Ubuntu server 16.04
+
+#Give your host a static IP and set DNS:
+
+# The primary network interface
+auto enp3s0
+#iface enp3s0 inet dhcp
+iface enp3s0 inet static
+address 192.168.1.205
+netmask 255.255.255.0
+gateway 192.168.1.1
+dns-nameservers 192.168.1.1
+
+sudo apt-get install git mongodb libffi-dev build-essential python-django python python-dev python-pip python-pil python-sqlalchemy python-bson python-dpkt python-jinja2 python-magic python-pymongo python-gridfs python-libvirt python-bottle python-pefile python-chardet tcpdump samba-common-bin libjpeg-dev python-virtualenv python-setuptools zlib1g-dev swig postgresql libpq-dev libguac-client-rdp0 libguac-client-vnc0 libguac-client-ssh0 guacd -y
+
+# Tcpdump normally requires root privileges. However since Cuckoo is not going to run as root we need to configure it properly.
+sudo setcap cap_net_raw,cap_net_admin=eip /usr/sbin/tcpdump
+
+# Yara:
+sudo apt-get install autoconf libtool libjansson-dev libmagic-dev libssl-dev -y
+wget https://github.com/plusvic/yara/archive/v3.4.0.tar.gz -O yara-3.4.0.tar.gz && tar -zxf yara-3.4.0.tar.gz && cd yara-3.4.0
+./bootstrap.sh
+./configure --with-crypto --enable-cuckoo --enable-magic && make && sudo make install
+
+# Yara python extension:
+cd yara-python && python setup.py build
+sudo python setup.py install
+
+# Installing Pydeep - Pydeep depends on ssdeep 2.8+
+cd && wget http://sourceforge.net/projects/ssdeep/files/ssdeep-2.13/ssdeep-2.13.tar.gz/download -O ssdeep-2.13.tar.gz && tar -zxf ssdeep-2.13.tar.gz && cd ssdeep-2.13
+./configure && make && sudo make install
+pip install pydeep
+
+# Volatility
+pip install openpyxl ujson pycrypto distorm3 pytz
+
+cd && git clone https://github.com/volatilityfoundation/volatility.git && cd volatility
+python setup.py build
+sudo python setup.py install
+
+# Installing Cuckoo
+sudo pip install m2crypto==0.24.0 # Install here. Has to be installed after 'swig' is installed (in the first sudo apt-get install line)
+sudo pip install jsonschema
+pip install cuckoo # Not sure why I have to pip install it and then install it from the repo, but whatever...
+cd && git clone https://github.com/cuckoosandbox/cuckoo.git && cd cuckoo
+sudo python stuff/monitor.py
+sudo python setup.py sdist
+sudo python setup.py install
+
+# add user for cuckoo:
+sudo useradd cuckoo
+
+# for PDF report generation:
+pip install weasyprint
+
+# Troubleshooting (do this now so you don't have to deal with it later).
+#https://cuckoo.sh/docs/faq/index.html#permission-denied-for-tcpdump
+# Fixing the permission denied for tcpdump:
+# With the new Cuckoo structure in-place all storage is now, by default, located in ~/.cuckoo, including the PCAP file, which will be stored at ~/.cuckoo/storage/analyses/task_id/dump.pcap. On Ubuntu with AppArmor enabled (default configuration) tcpdump doesn’t have write permission to dot-directories in $HOME, causing the permission denied message and preventing Cuckoo from capturing PCAP files.
+sudo apt-get install apparmor-utils
+sudo aa-disable /usr/sbin/tcpdump
+
+#####
+# Configuration files::
+
+# Run cuckoo. This will create what cuckoo calls the 'CWD', or 'Current working directory'
+cuckoo
+
+# Run it again to get the community rules with this command:
+cuckoo community
+
+# Conf files are in:
+# ~/.cuckoo/conf
+
+vim ~/.cuckoo/conf/cuckoo.conf
+# default machinery is virtualbox. This guide uses that, so leave it as is.
+# memory_dump = no, change to yes if you want to turn on Volatility for memory analysis. This will take a full snapshot of the VM's memory, which could eat up your space quickly.
+
+vim ~/.cuckoo/conf/reporting.conf
+
+[singlefile]
+# Enable creation of report.html?
+enabled = yes
+﻿
+[mongodb]
+enabled = yes
+
+# We will come back to this file if installing MISP (later)
+
+vim ~/.cuckoo/conf/virtualbox.conf
+mode = headless # if you don't need to see the gui window for the vm/vm's running
+interface = YOURETHERNETADAPTERWITHINTERNETACCESS
+machines = xp1,xp2,xp3,xp4,xp5 # whatever machines you're using as VM's
+
+# Below that, you specify each machine. In the example above, I have 5 machines (xp1,xp2,xp3,xp4,xp5). That means I need to specify 5 of them just like the one example in the file. Here's a quick sample of one of the machines:
+[xp1]
+label = xp1
+platform = windows
+ip = 192.168.56.101
+snapshot = ready
+interface = vboxnet0
+resultserver_ip =
+resultserver_port =
+tags =
+options =
+osprofile =
+
+##############
+
+Using mysql if running multiple machines. Make sure to update with your actual password:
+
+mysql> create database cuckoo;
+mysql> grant all privileges on cuckoo.* to cuckoo@localhost identified by 'password';
+mysql> flush privileges;
+mysql> quit;
+
+Then, in cuckoo.conf, in the database section:
+connection = mysql://cuckoo:password@localhost/cuckoo
+
+###############
+Virtualbox networking:
+# Create the vboxnet0 interface:
+vboxmanage hostonlyif create
+
+# Set the IP address for the vboxnet0 interface.
+vboxmanage hostonlyif ipconfig vboxnet0 --ip 192.168.56.1
+
+# Configure the VM's to use the hostonly adapter
+# Set their IP's manually in the same range as the hostonly network
+# IP 192.168.1.101
+# Netmask: 255.255.255.0
+# Gateway: 192.168.1.1
+
+# Set up IPTables routing:
+sudo iptables -A FORWARD -o YOURETHERNETADAPTERWITHINTERNETACCESS -i vboxnet0 -s 192.168.56.0/24 -m conntrack --ctstate NEW -j ACCEPT
+sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+sudo iptables -A POSTROUTING -t nat -j MASQUERADE
+
+# Enable IP forwarding in the kernel so that these settings are set to Active (required for WWW Internet access):
+echo 1 | sudo tee -a /proc/sys/net/ipv4/ip_forward
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# Set IPTables rules to be persistent on reboot:
+sudo apt-get install -y iptables-persistent
+
+# To enable IP forwarding at startup after reboot (Ubuntu 17.04 requires this) edit the sysctl.conf file by issuing the command:
+sudo vim /etc/sysctl.conf
+
+# Uncomment:
+net.ipv4.ip_forward=1
+
+Virtual networks don't persist after reboot, so do the following:
+Create the /opt/system/vboxhostonly directory and create the bash script to run the vboxmanage commands
+sudo mkdir /opt/systemd/
+vim /opt/systemd/vboxhostonly
+
+Put this in that file:
+#!/bin/bash
+vboxmanage hostonlyif ipconfig vboxnet0 --ip 192.168.56.1
+
+# Make it executable:
+sudo chmod 755 /opt/systemd/vboxhostonly
+
+# Create the vboxhostonlynic.service file in /etc/systemd/system/ directory
+sudo touch /etc/systemd/system/vboxhostonlynic.service
+
+# Put the following into it:
+Description=Setup VirtualBox Hostonly Adapter
+After=vboxdrv.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/systemd/vboxhostonly
+
+
+[Install]
+WantedBy=multi-user.target
+
+# Install the systemd service and enable it so it will be executed at boot time:
+sudo systemctl daemon-reload
+sudo systemctl enable vboxhostonlynic.service
+
+# Verify the service is working properly:
+sudo systemctl start vboxhostonlynic.service
+
+##############
+VM Configuration:
+
+Win VM:
+Install 32 bit version of python 2.7
+
+In the VM's:
+
+# Download and install python 32 bit:
+https://www.python.org/ftp/python/2.7.15/python-2.7.15.msi
+
+Install dependencies in Windows for Pillow (Cuckoo's screenshot feature)
+# Open command prompt and change directory to c:\python27\scripts
+# Run:
+pip install pillow
+
+# Install old software. Things like Office, acrobat reader, etc. Open each one to get past any first screens
+
+# Copy '~/.cuckoo/agent/agent.py' from the cuckoo host to the VM, and put it in the startup folder. If you don't want the command window to be visible, change the extension to .pyw
+
+# Configure networking:
+# Set the VM/s to use 'host only networking', using the interface specified in ~/.cuckoo/conf/virtualbox.conf
+# Set up the VM's IP addressing to match what is specified for that VM in ~/.cuckoo/conf/virtualbox.conf. In the example used above:
+[xp1]
+label = xp1
+platform = windows
+ip = 192.168.56.101
+snapshot = ready
+interface = vboxnet0
+
+# The machine known as xp2 (whatever you name the machine within Windows doesn't matter) should have the following networking to match that file:
+IP: 192.168.56.102, subnet: 255.255.255.0, gateway: 192.168.56.1
+
+# Restart the machine, then see if you can ping the cuckoo host from the VM:
+ping 192.168.56.1
+# See if you can ping the VM from the cuckoo host:
+ping 192.168.56.101
+# See if you can reach the agent from the cuckoo host:
+telnet 192.168.56.101 8000
+# you should see a successful connection. Quit that and, if all is well, make a snapshot using the virtualbox gui or on the cuckoo host with:
+vboxmanage snapshot xp1 take "ready"
+# make sure the section for your machine in ~/.cuckoo/conf/virtualbox.conf, with the snapshot = '' has whatever name your snapshot is. In this case, it's literally 'ready'
+
+# Poweroff the VM:
+vboxmanage controlvm xp1 poweroff # From the cuckoo host, or you can shut the VM down using the virtualbox GUI.
+
+##############
+# On the cuckoo server, run Cuckoo and Cuckoo web (preferably in tmux sessions)
+tmux new -s cuckoo
+cuckoo
+# press ctrl + b, then let go of those keys and press the 'd' key to detach from the 'cuckoo' tmux session. Cuckoo will keep running in that session.
+
+# Web:
+tmux new -s cuckooweb
+cuckoo web runserver 0.0.0.0:8000
+# press ctrl + b, then let go of those keys and press the 'd' key to detach from the 'cuckoo' tmux session. Cuckoo will keep running in that session.
+
+# If you need to reattach to restart or stop either service, use the following:
+# NOTE: 'tmux ls' will list running tmux sessions
+tmux attach-session -t cuckoo # attach to the tmux session running cuckoo
+tmux attach-session -t cuckooweb # attach to the tmux session running cuckoo web server
+
+# Now, you can visit the web interface to submit things by going to the following address in your web browser:
+ipofthecuckooserver:8000
+
+# And you can submit things, view previous submissions, etc...
+
+# If you want to submit a lot of files or via the command line, on the cuckoo server:
+cuckoo submit directory
+or
+cuckoo submit file.exe
+
+# If you want to clear out all the past analysis:
+On the server:
+cuckoo clean
